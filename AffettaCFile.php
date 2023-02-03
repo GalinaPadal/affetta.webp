@@ -35,15 +35,103 @@ $webFile = AffettaCFile::ResizeImageGet([
         'WEBP_USE' => true,
 ], CFile::GetFileArray(196454), array( "width" => 700, "height" => 400 ), BX_RESIZE_IMAGE_EXACT);
 
+------------------------
+
+if(!empty($actualItem["MORE_PHOTO"])){
+    $actualItem["MORE_PHOTO_COUNT"] = count($actualItem["MORE_PHOTO"]);
+    foreach ($actualItem["MORE_PHOTO"] as $key => $file) {
+        $actualItem["MORE_PHOTO"][$key] =[
+            'thumb' => AffettaCFile::ResizeImageGet(['FILE_NAME_NEW' => $actualItem['NAME'].'. Маленькое фото'.($key+1)], $file, ["width" => 100, "height" => 100 ]),
+            'image' => AffettaCFile::ResizeImageGet(['FILE_NAME_NEW' => $actualItem['NAME'].'. Фото'.($key+1)], $file, ["width" => 700, "height" => 700 ]),
+        ];
+    }
+}
+
+<? foreach ($actualItem["MORE_PHOTO"] as $key => $file) {
+    $file = $file['thumb'];
+    ?>
+    <div class="swiper-slide">
+        <div class="section-product-card__block-slide-image">
+            <img src="<?=$file['SRC']?>" alt="<?=$file['ALT']?>" title="<?=$file['TITLE']?>" class="section-product-card__slide-image"/>
+        </div>
+    </div>
+<? } ?>
+---------------------
+
+<?
+$B1_IMG = AffettaCFile::ResizeImageGet(['FILE_NAME_NEW' => $arResult['GOS']['B1_NAME']['VALUE']], $arResult['GOS']['B1_IMG']['VALUE'], ["width" => 512, "height" => 510 ]);
+?>
+<img class="about-us__image" src="<?=$B1_IMG['SRC']?>" alt="<?=$B1_IMG['ALT']?>" title="<?=$B1_IMG['TITLE']?>">
 
  */
 class AffettaCFile extends \CFile
 {
-    private static $jpgQuality = 70; // по дефолту качество сжатия int либо false, перебивает в ResizeImageGet
+    private static $jpgQuality = 90; // по дефолту качество сжатия int либо false, перебивает в ResizeImageGet
     private static $bInitSizes = true;  // по дефолту выводит размер картинки true,false, перебивает в ResizeImageGet
     private static $webpUse = true; // по дефолту вовертировать в webp формат,можно перебить в ResizeImageGet  $arParams['WEBP_USE'] = true или false
     private static $fileNameNewUse = true; // глобально включает использование другого имение
     private static $isPng = true; // используется для getWebp в одной из функций
+
+    public static function CopyFileMod($arParams = [], $file, $bRegister = true, $newPath = "")
+    {
+
+        if (!is_array($file) && intval($file) > 0)
+        {
+            $file = static::GetFileArray($file);
+        }
+
+        $file['FILE_SIZE_SHOW'] = static::FormatSize($file['FILE_SIZE']);
+        $newFilePath = '';
+
+        if(!empty($newPath)) {
+            $newFilePath = $newPath;
+        } else {
+
+            if(isset($arParams['FILE_NAME_NEW_USE'])) {
+                if ($arParams['FILE_NAME_NEW_USE'] == true) {
+                    self::$fileNameNewUse = true;
+                } else if ($arParams['FILE_NAME_NEW_USE'] == false) {
+                    self::$fileNameNewUse = false;
+                }
+            }
+
+            if(self::$fileNameNewUse) {
+
+                if (!empty($file['DESCRIPTION'])) {
+                    $arParams['FILE_NAME_NEW'] = $file['DESCRIPTION'];
+                }
+
+                $file['ALT'] = $file['TITLE'] = $arParams['FILE_NAME_NEW'];
+
+                $arParams['FILE_NAME_NEW'] = trim($arParams['FILE_NAME_NEW']);
+
+                if (!empty($arParams['FILE_NAME_NEW'])) {
+                    $FILE_NAME_TRANSLIT = array("replace_space" => "_", "replace_other" => "_");
+                    $FILE_NAME_NEW = Cutil::translit($arParams['FILE_NAME_NEW'], "ru", $FILE_NAME_TRANSLIT);
+                    $ext = end(explode('.', $file["FILE_NAME"]));
+                    $file["FILE_NAME"] = $FILE_NAME_NEW . '.' . $ext;
+                    $file['ORIGINAL_NAME'] = $arParams['FILE_NAME_NEW'] . '.' . $ext;
+                } else {
+                    $FILE_NAME_TRANSLIT = array("replace_space" => "_", "replace_other" => "_");
+                    $FILE_NAME_NEW = Cutil::translit($file["ORIGINAL_NAME"], "ru", $FILE_NAME_TRANSLIT);
+                    $file["FILE_NAME"] = $FILE_NAME_NEW;
+                }
+                $newFilePath = 'resize_cache/af_files/' . $file['SUBDIR'] . '/' . $file['FILE_NAME'];
+
+            }
+
+        }
+
+        if(!empty($newFilePath)) {
+            if (!file_exists($_SERVER['DOCUMENT_ROOT'] . '/upload/' . $newFilePath)) {
+                $fileCopy = AffettaCFile::CopyFile($file['ID'], $bRegister, $newFilePath);
+//        dump($fileCopy);
+            }
+            $file["SRC"] = '/upload/' . $newFilePath;
+
+        }
+        return $file;
+    }
 
     /*
      * Доработанная стандартная функция ресайза CFile::ResizeImageGet(). Николай
@@ -59,6 +147,8 @@ class AffettaCFile extends \CFile
         if (!is_array($file) && intval($file) > 0)
         {
             $file = static::GetFileArray($file);
+        } elseif (!empty($file['ID'])){
+            $file = static::GetFileArray($file['ID']);
         }
 
         if (!is_array($file) || !array_key_exists("FILE_NAME", $file) || $file["FILE_NAME"] == '')
@@ -89,31 +179,31 @@ class AffettaCFile extends \CFile
         $arImageSize = false;
         $bFilters = is_array($arFilters) && !empty($arFilters);
 
-        if (
-            ($arSize["width"] <= 0 || $arSize["width"] >= $file["WIDTH"])
-            && ($arSize["height"] <= 0 || $arSize["height"] >= $file["HEIGHT"])
-        )
-        {
-            if($bFilters)
-            {
-                //Only filters. Leave size unchanged
-                $arSize["width"] = $file["WIDTH"];
-                $arSize["height"] = $file["HEIGHT"];
-                $resizeType = BX_RESIZE_IMAGE_PROPORTIONAL;
-            }
-            else
-            {
-                global $arCloudImageSizeCache;
-                $arCloudImageSizeCache[$file["SRC"]] = array($file["WIDTH"], $file["HEIGHT"]);
-
-                return array(
-                    "src" => $file["SRC"],
-                    "width" => intval($file["WIDTH"]),
-                    "height" => intval($file["HEIGHT"]),
-                    "size" => $file["FILE_SIZE"],
-                );
-            }
-        }
+//        if (
+//            ($arSize["width"] <= 0 || $arSize["width"] >= $file["WIDTH"])
+//            && ($arSize["height"] <= 0 || $arSize["height"] >= $file["HEIGHT"])
+//        )
+//        {
+//            if($bFilters)
+//            {
+//                //Only filters. Leave size unchanged
+//                $arSize["width"] = $file["WIDTH"];
+//                $arSize["height"] = $file["HEIGHT"];
+//                $resizeType = BX_RESIZE_IMAGE_PROPORTIONAL;
+//            }
+//            else
+//            {
+//                global $arCloudImageSizeCache;
+//                $arCloudImageSizeCache[$file["SRC"]] = array($file["WIDTH"], $file["HEIGHT"]);
+//
+//                return array(
+//                    "src" => $file["SRC"],
+//                    "width" => intval($file["WIDTH"]),
+//                    "height" => intval($file["HEIGHT"]),
+//                    "size" => $file["FILE_SIZE"],
+//                );
+//            }
+//        }
 
         $io = CBXVirtualIo::GetInstance();
 
@@ -126,6 +216,14 @@ class AffettaCFile extends \CFile
         }
 
         if(self::$fileNameNewUse){
+
+            if (!empty($file['DESCRIPTION'])) {
+                $arParams['FILE_NAME_NEW'] = $file['DESCRIPTION'];
+            }
+
+            $file['ALT'] = $file['TITLE'] = $arParams['FILE_NAME_NEW'];
+
+            $arParams['FILE_NAME_NEW'] = trim($arParams['FILE_NAME_NEW']);
 
             // Транслит имени файла
             $FILE_NAME_TRANSLIT = array("replace_space" => "_", "replace_other" => "_");
@@ -299,12 +397,12 @@ class AffettaCFile extends \CFile
         if ($arPath[2] === 'resize_cache')
         {
             $arPath = self::implodeSrc($arPath);
-            return str_replace('resize_cache/iblock', 'webp/resize_cache', $arPath);
+            return str_replace('resize_cache/iblock', 'resize_cache/af_webp/iblock', $arPath);
         }
         else
         {
             $arPath = self::implodeSrc($arPath);
-            return str_replace('upload/iblock', 'upload/webp/iblock', $arPath);
+            return str_replace('upload/iblock', 'upload/af_webp/iblock', $arPath);
         }
     }
 
